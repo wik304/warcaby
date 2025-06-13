@@ -75,7 +75,7 @@ public class CheckersGame {
 
         Scene menuScene = new Scene(menuLayout, 400, 300);
         primaryStage.setScene(menuScene);
-        primaryStage.setTitle("Warcaby - Wybór Trybu Gry");
+        primaryStage.setTitle("Warcaby");
         primaryStage.show();
     }
 
