@@ -5,13 +5,18 @@ import javafx.scene.Group;
 import javafx.scene.layout.*;
 import javafx.scene.control.*;
 import javafx.stage.Stage;
+import javafx.animation.AnimationTimer;
+import javafx.scene.text.Font;
+import javafx.geometry.Pos;
 
 import java.util.Optional;
+import java.time.Duration;
 
 public class CheckersGame {
     public static final int TILE_SIZE = 80;
     public static final int WIDTH = 8;
     public static final int HEIGHT = 8;
+    public static final int TIME_LIMIT_MINUTES = 10;
 
     private Tile[][] board = new Tile[WIDTH][HEIGHT];
     private final Group tileGroup = new Group();
@@ -25,6 +30,12 @@ public class CheckersGame {
     private final VBox whiteTimeList = new VBox(5);
     private final VBox redTimeList = new VBox(5);
     private ScrollPane whiteScroll, redScroll;
+
+    private long whiteTimeRemaining = TIME_LIMIT_MINUTES * 60L * 1_000_000_000L;
+    private long redTimeRemaining = TIME_LIMIT_MINUTES * 60L * 1_000_000_000L;
+    private Label whiteClockLabel, redClockLabel;
+    private AnimationTimer gameTimer;
+    private boolean isTimerRunning = false;
 
     public void start(Stage primaryStage) {
         this.primaryStage = primaryStage;
@@ -42,11 +53,11 @@ public class CheckersGame {
         -fx-text-fill: white;
         -fx-background-radius: 10;
         -fx-cursor: hand;
-    """;
+        """;
 
         String hoverStyle = """
         -fx-background-color: linear-gradient(to bottom, #66BB6A, #388E3C);
-    """;
+        """;
 
         localPlayButton.setStyle(buttonStyle);
         lanPlayButton.setStyle(buttonStyle);
@@ -84,6 +95,7 @@ public class CheckersGame {
         setupRootLayout();
         createBoardAndPieces();
         setupMoveTimeSidebar();
+        setupChessClocks();
         finalizeInitialization();
     }
 
@@ -94,6 +106,14 @@ public class CheckersGame {
 
         board = new Tile[WIDTH][HEIGHT];
         gameLogic.setBoard(board);
+
+        whiteTimeRemaining = TIME_LIMIT_MINUTES * 60L * 1_000_000_000L;
+        redTimeRemaining = TIME_LIMIT_MINUTES * 60L * 1_000_000_000L;
+
+        if (gameTimer != null) {
+            gameTimer.stop();
+        }
+        isTimerRunning = false;
     }
 
     private void setupRootLayout() {
@@ -140,10 +160,39 @@ public class CheckersGame {
         redScroll = new ScrollPane(redTimeList);
         whiteScroll.setFitToWidth(true);
         redScroll.setFitToWidth(true);
-        whiteScroll.setPrefHeight(300);
-        redScroll.setPrefHeight(300);
+        whiteScroll.setPrefHeight(200);
+        redScroll.setPrefHeight(200);
+    }
+
+    private void setupChessClocks() {
+        whiteClockLabel = new Label(formatTime(whiteTimeRemaining));
+        redClockLabel = new Label(formatTime(redTimeRemaining));
+
+        whiteClockLabel.setFont(Font.font(20));
+        redClockLabel.setFont(Font.font(20));
+
+        whiteClockLabel.setStyle("-fx-text-fill: #333333; -fx-font-weight: bold;");
+        redClockLabel.setStyle("-fx-text-fill: #333333; -fx-font-weight: bold;");
+
+        Label whiteText = new Label("BIAŁY:");
+        Label redText = new Label("CZERWONY:");
+        whiteText.setStyle("-fx-font-weight: bold; -fx-padding: 0 5 0 0;");
+        redText.setStyle("-fx-font-weight: bold; -fx-padding: 0 5 0 0;");
+
+        HBox whiteClockBox = new HBox(whiteText, whiteClockLabel);
+        HBox redClockBox = new HBox(redText, redClockLabel);
+
+        whiteClockBox.setAlignment(Pos.CENTER_LEFT);
+        redClockBox.setAlignment(Pos.CENTER_LEFT);
+        whiteClockBox.setMinHeight(40);
+        redClockBox.setMinHeight(40);
+        whiteClockBox.setStyle("-fx-padding: 0 10; -fx-background-color: #f8f8f8; -fx-border-color: #cccccc; -fx-border-width: 1;");
+        redClockBox.setStyle("-fx-padding: 0 10; -fx-background-color: #f8f8f8; -fx-border-color: #cccccc; -fx-border-width: 1;");
+
+        VBox clocksBox = new VBox(10, whiteClockBox, redClockBox);
 
         VBox sidebar = new VBox(10,
+                clocksBox,
                 new Label("Czas ruchów BIAŁY:"), whiteScroll,
                 new Label("Czas ruchów CZERWONY:"), redScroll
         );
@@ -151,25 +200,78 @@ public class CheckersGame {
         sidebar.setStyle("-fx-padding: 20; -fx-background-color: #f0f0f0;");
 
         root.setRight(sidebar);
+
+        gameTimer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+                if (gameLogic.isRedTurn()) {
+                    redClockLabel.setText(formatTime(redTimeRemaining - (System.nanoTime() - turnStartTime)));
+                    if (redTimeRemaining <= 0) {
+                        endGame(PieceType.WHITE);
+                    }
+                } else {
+                    whiteClockLabel.setText(formatTime(whiteTimeRemaining - (System.nanoTime() - turnStartTime)));
+                    if (whiteTimeRemaining <= 0) {
+                        endGame(PieceType.RED);
+                    }
+                }
+            }
+        };
+    }
+
+    private String formatTime(long nanoseconds) {
+        if (nanoseconds <= 0) return "00:00";
+
+        Duration duration = Duration.ofNanos(nanoseconds);
+        long minutes = duration.toMinutes();
+        long seconds = duration.minusMinutes(minutes).getSeconds();
+        return String.format("%02d:%02d", minutes, seconds);
     }
 
     private void finalizeInitialization() {
         gameLogic.updateAvailableCaptures();
         turnStartTime = System.nanoTime();
+        startTimer();
     }
 
-    public void recordTurnDuration() {
-        long endTime = System.nanoTime();
-        double durationSeconds = (endTime - turnStartTime) / 1_000_000_000.0;
-        String formatted = String.format("Ruch %d: %.3f s",
-                (gameLogic.isRedTurn() ? redTimeList.getChildren().size() + 1 : whiteTimeList.getChildren().size() + 1),
-                durationSeconds);
+    private void startTimer() {
+        if (!isTimerRunning) {
+            gameTimer.start();
+            isTimerRunning = true;
+        }
+    }
 
-        Label entry = new Label(formatted);
+    private void stopTimer() {
+        if (isTimerRunning) {
+            gameTimer.stop();
+            isTimerRunning = false;
+        }
+    }
+
+    private void switchPlayerClock() {
+        long currentTime = System.nanoTime();
+        long elapsed = currentTime - turnStartTime;
+
         if (gameLogic.isRedTurn()) {
+            redTimeRemaining -= elapsed;
+            if (redTimeRemaining <= 0) {
+                endGame(PieceType.WHITE);
+                return;
+            }
+
+            double seconds = elapsed / 1_000_000_000.0;
+            Label entry = new Label(String.format("Ruch %d: %.3f s", redTimeList.getChildren().size() + 1, seconds));
             redTimeList.getChildren().add(entry);
             redScroll.setVvalue(1.0);
         } else {
+            whiteTimeRemaining -= elapsed;
+            if (whiteTimeRemaining <= 0) {
+                endGame(PieceType.RED);
+                return;
+            }
+
+            double seconds = elapsed / 1_000_000_000.0;
+            Label entry = new Label(String.format("Ruch %d: %.3f s", whiteTimeList.getChildren().size() + 1, seconds));
             whiteTimeList.getChildren().add(entry);
             whiteScroll.setVvalue(1.0);
         }
@@ -180,14 +282,6 @@ public class CheckersGame {
     private Piece makePiece(PieceType type, int x, int y) {
         Piece piece = new Piece(type, x, y);
 
-        setupMousePressedHandler(piece);
-        setupMouseDraggedHandler(piece);
-        setupMouseReleasedHandler(piece);
-
-        return piece;
-    }
-
-    private void setupMousePressedHandler(Piece piece) {
         piece.setOnMousePressed(e -> {
             if (gameLogic.canPieceMove(piece)) {
                 piece.mouseX = e.getSceneX() - piece.getLayoutX() - TILE_SIZE / 2.0;
@@ -197,20 +291,14 @@ public class CheckersGame {
                 e.consume();
             }
         });
-    }
 
-    private void setupMouseDraggedHandler(Piece piece) {
         piece.setOnMouseDragged(e -> {
             if (gameLogic.canPieceMove(piece)) {
-                double newX = e.getSceneX() - piece.mouseX - TILE_SIZE / 2.0;
-                double newY = e.getSceneY() - piece.mouseY - TILE_SIZE / 2.0;
-                piece.setLayoutX(newX);
-                piece.setLayoutY(newY);
+                piece.setLayoutX(e.getSceneX() - piece.mouseX - TILE_SIZE / 2.0);
+                piece.setLayoutY(e.getSceneY() - piece.mouseY - TILE_SIZE / 2.0);
             }
         });
-    }
 
-    private void setupMouseReleasedHandler(Piece piece) {
         piece.setOnMouseReleased(_ -> {
             if (!gameLogic.canPieceMove(piece)) {
                 piece.abortMove();
@@ -230,6 +318,8 @@ public class CheckersGame {
                 piece.abortMove();
             }
         });
+
+        return piece;
     }
 
     private void handleNormalMove(Piece piece, int newX, int newY) {
@@ -241,7 +331,7 @@ public class CheckersGame {
         gameLogic.makeMove(piece, newX, newY);
         gameLogic.checkAndPromote(piece, newY);
         gameLogic.setCapturingPiece(null);
-        recordTurnDuration();
+        switchPlayerClock();
         gameLogic.switchTurn();
         gameLogic.updateAvailableCaptures();
         gameLogic.checkGameEnd(this::endGame);
@@ -265,7 +355,7 @@ public class CheckersGame {
             gameLogic.setCapturingPiece(piece);
         } else {
             gameLogic.setCapturingPiece(null);
-            recordTurnDuration();
+            switchPlayerClock();
             gameLogic.switchTurn();
         }
 
@@ -274,6 +364,7 @@ public class CheckersGame {
     }
 
     public void endGame(PieceType winner) {
+        stopTimer();
         gameLogic.setGameEnded(true);
         String winnerName = winner == PieceType.RED ? "Czerwony" : "Biały";
 
