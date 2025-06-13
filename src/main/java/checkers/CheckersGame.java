@@ -36,21 +36,59 @@ public class CheckersGame {
     }
 
     public void initializeGame() {
-        gameLogic.resetGame();
+        resetAndPrepareGame();
+        setupRootLayout();
+        createBoardAndPieces();
+        setupMoveTimeSidebar();
+        finalizeInitialization();
+    }
 
+    private void resetAndPrepareGame() {
+        gameLogic.resetGame();
         tileGroup.getChildren().clear();
         pieceGroup.getChildren().clear();
 
         board = new Tile[WIDTH][HEIGHT];
         gameLogic.setBoard(board);
+    }
 
+    private void setupRootLayout() {
         root = new BorderPane();
 
         Pane boardPane = new Pane();
         boardPane.setPrefSize(WIDTH * TILE_SIZE, HEIGHT * TILE_SIZE);
         boardPane.getChildren().addAll(tileGroup, pieceGroup);
-        root.setCenter(boardPane);
 
+        root.setCenter(boardPane);
+    }
+
+    private void createBoardAndPieces() {
+        for (int y = 0; y < HEIGHT; y++) {
+            for (int x = 0; x < WIDTH; x++) {
+                Tile tile = new Tile((x + y) % 2 == 0, x, y);
+                board[x][y] = tile;
+                tileGroup.getChildren().add(tile);
+
+                Piece piece = createInitialPiece(x, y);
+                if (piece != null) {
+                    tile.setPiece(piece);
+                    pieceGroup.getChildren().add(piece);
+                }
+            }
+        }
+    }
+
+    private Piece createInitialPiece(int x, int y) {
+        if (y <= 2 && (x + y) % 2 != 0) {
+            return makePiece(PieceType.RED, x, y);
+        }
+        if (y >= 5 && (x + y) % 2 != 0) {
+            return makePiece(PieceType.WHITE, x, y);
+        }
+        return null;
+    }
+
+    private void setupMoveTimeSidebar() {
         whiteTimeList.getChildren().clear();
         redTimeList.getChildren().clear();
 
@@ -69,27 +107,9 @@ public class CheckersGame {
         sidebar.setStyle("-fx-padding: 20; -fx-background-color: #f0f0f0;");
 
         root.setRight(sidebar);
+    }
 
-        for (int y = 0; y < HEIGHT; y++) {
-            for (int x = 0; x < WIDTH; x++) {
-                Tile tile = new Tile((x + y) % 2 == 0, x, y);
-                board[x][y] = tile;
-                tileGroup.getChildren().add(tile);
-
-                Piece piece = null;
-                if (y <= 2 && (x + y) % 2 != 0) {
-                    piece = makePiece(PieceType.RED, x, y);
-                }
-                if (y >= 5 && (x + y) % 2 != 0) {
-                    piece = makePiece(PieceType.WHITE, x, y);
-                }
-                if (piece != null) {
-                    tile.setPiece(piece);
-                    pieceGroup.getChildren().add(piece);
-                }
-            }
-        }
-
+    private void finalizeInitialization() {
         gameLogic.updateAvailableCaptures();
         turnStartTime = System.nanoTime();
     }
@@ -116,6 +136,14 @@ public class CheckersGame {
     private Piece makePiece(PieceType type, int x, int y) {
         Piece piece = new Piece(type, x, y);
 
+        setupMousePressedHandler(piece);
+        setupMouseDraggedHandler(piece);
+        setupMouseReleasedHandler(piece);
+
+        return piece;
+    }
+
+    private void setupMousePressedHandler(Piece piece) {
         piece.setOnMousePressed(e -> {
             if (gameLogic.canPieceMove(piece)) {
                 piece.mouseX = e.getSceneX() - piece.getLayoutX() - TILE_SIZE / 2.0;
@@ -125,7 +153,9 @@ public class CheckersGame {
                 e.consume();
             }
         });
+    }
 
+    private void setupMouseDraggedHandler(Piece piece) {
         piece.setOnMouseDragged(e -> {
             if (gameLogic.canPieceMove(piece)) {
                 double newX = e.getSceneX() - piece.mouseX - TILE_SIZE / 2.0;
@@ -134,7 +164,9 @@ public class CheckersGame {
                 piece.setLayoutY(newY);
             }
         });
+    }
 
+    private void setupMouseReleasedHandler(Piece piece) {
         piece.setOnMouseReleased(_ -> {
             if (!gameLogic.canPieceMove(piece)) {
                 piece.abortMove();
@@ -147,49 +179,54 @@ public class CheckersGame {
             MoveResult result = gameLogic.tryMove(piece, newX, newY);
 
             if (result.type == MoveType.NORMAL) {
-                if (!gameLogic.getPiecesWithCaptures().isEmpty() || gameLogic.getCapturingPiece() != null) {
-                    piece.abortMove();
-                    return;
-                }
-
-                gameLogic.makeMove(piece, newX, newY);
-                gameLogic.checkAndPromote(piece, newY);
-                gameLogic.setCapturingPiece(null);
-                recordTurnDuration();
-                gameLogic.switchTurn();
-                gameLogic.updateAvailableCaptures();
-                gameLogic.checkGameEnd(this::endGame);
-                return;
+                handleNormalMove(piece, newX, newY);
+            } else if (result.type == MoveType.KILL && !result.capturedPieces.isEmpty()) {
+                handleKillMove(piece, newX, newY, result);
+            } else {
+                piece.abortMove();
             }
-
-            if (result.type == MoveType.KILL && !result.capturedPieces.isEmpty()) {
-                gameLogic.makeMove(piece, newX, newY);
-                for (Piece captured : result.capturedPieces) {
-                    board[gameLogic.toBoard(captured.oldX)][gameLogic.toBoard(captured.oldY)].setPiece(null);
-                    pieceGroup.getChildren().remove(captured);
-                }
-
-                gameLogic.checkGameEnd(this::endGame);
-                gameLogic.checkAndPromote(piece, newY);
-
-                int currentX = gameLogic.toBoard(piece.oldX);
-                int currentY = gameLogic.toBoard(piece.oldY);
-                if (gameLogic.hasAnyCaptures(piece, currentX, currentY)) {
-                    gameLogic.setCapturingPiece(piece);
-                } else {
-                    gameLogic.setCapturingPiece(null);
-                    recordTurnDuration();
-                    gameLogic.switchTurn();
-                }
-                gameLogic.updateAvailableCaptures();
-                gameLogic.checkGameEnd(this::endGame);
-                return;
-            }
-
-            piece.abortMove();
         });
+    }
 
-        return piece;
+    private void handleNormalMove(Piece piece, int newX, int newY) {
+        if (!gameLogic.getPiecesWithCaptures().isEmpty() || gameLogic.getCapturingPiece() != null) {
+            piece.abortMove();
+            return;
+        }
+
+        gameLogic.makeMove(piece, newX, newY);
+        gameLogic.checkAndPromote(piece, newY);
+        gameLogic.setCapturingPiece(null);
+        recordTurnDuration();
+        gameLogic.switchTurn();
+        gameLogic.updateAvailableCaptures();
+        gameLogic.checkGameEnd(this::endGame);
+    }
+
+    private void handleKillMove(Piece piece, int newX, int newY, MoveResult result) {
+        gameLogic.makeMove(piece, newX, newY);
+
+        for (Piece captured : result.capturedPieces) {
+            board[gameLogic.toBoard(captured.oldX)][gameLogic.toBoard(captured.oldY)].setPiece(null);
+            pieceGroup.getChildren().remove(captured);
+        }
+
+        gameLogic.checkGameEnd(this::endGame);
+        gameLogic.checkAndPromote(piece, newY);
+
+        int currentX = gameLogic.toBoard(piece.oldX);
+        int currentY = gameLogic.toBoard(piece.oldY);
+
+        if (gameLogic.hasAnyCaptures(piece, currentX, currentY)) {
+            gameLogic.setCapturingPiece(piece);
+        } else {
+            gameLogic.setCapturingPiece(null);
+            recordTurnDuration();
+            gameLogic.switchTurn();
+        }
+
+        gameLogic.updateAvailableCaptures();
+        gameLogic.checkGameEnd(this::endGame);
     }
 
     public void endGame(PieceType winner) {

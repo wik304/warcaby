@@ -112,71 +112,70 @@ public class GameLogic {
     }
 
     public boolean hasAnyCaptures(Piece piece, int x, int y) {
-        List<int[]> directions = piece.getMoveDirections();
-
-        for (int[] dir : directions) {
-            int maxDistance = piece.isKing ? Math.max(WIDTH, HEIGHT) : 1;
-
-            for (int startDist = 1; startDist <= maxDistance; startDist++) {
-                int enemyX = x + dir[0] * startDist;
-                int enemyY = y + dir[1] * startDist;
-
-                if (enemyX < 0 || enemyX >= WIDTH || enemyY < 0 || enemyY >= HEIGHT) {
-                    break;
-                }
-
-                Piece enemyPiece = board[enemyX][enemyY].getPiece();
-
-                if (enemyPiece != null && enemyPiece.getType() == piece.getType()) {
-                    break;
-                }
-
-                if (enemyPiece != null) {
-                    int maxLandingDist = piece.isKing ? Math.max(WIDTH, HEIGHT) : 1;
-
-                    for (int landDist = 1; landDist <= maxLandingDist; landDist++) {
-                        int landX = enemyX + dir[0] * landDist;
-                        int landY = enemyY + dir[1] * landDist;
-
-                        if (landX < 0 || landX >= WIDTH || landY < 0 || landY >= HEIGHT) {
-                            break;
-                        }
-
-                        if (board[landX][landY].hasPiece()) {
-                            break;
-                        }
-
-                        boolean pathClear = true;
-                        for (int step = 1; step < landDist; step++) {
-                            int checkX = enemyX + dir[0] * step;
-                            int checkY = enemyY + dir[1] * step;
-                            if (board[checkX][checkY].hasPiece()) {
-                                pathClear = false;
-                                break;
-                            }
-                        }
-
-                        if (pathClear) {
-                            boolean pathToEnemyClear = true;
-                            for (int step = 1; step < startDist; step++) {
-                                int checkX = x + dir[0] * step;
-                                int checkY = y + dir[1] * step;
-                                if (board[checkX][checkY].hasPiece()) {
-                                    pathToEnemyClear = false;
-                                    break;
-                                }
-                            }
-
-                            if (pathToEnemyClear) {
-                                return true;
-                            }
-                        }
-                    }
-                    break;
-                }
+        for (int[] dir : piece.getMoveDirections()) {
+            if (canCaptureInDirection(piece, x, y, dir)) {
+                return true;
             }
         }
         return false;
+    }
+
+    private boolean canCaptureInDirection(Piece piece, int x, int y, int[] dir) {
+        int maxDistance = piece.isKing ? Math.max(WIDTH, HEIGHT) : 1;
+
+        for (int startDist = 1; startDist <= maxDistance; startDist++) {
+            int enemyX = x + dir[0] * startDist;
+            int enemyY = y + dir[1] * startDist;
+
+            if (!isInsideBoard(enemyX, enemyY)) break;
+
+            Piece enemyPiece = board[enemyX][enemyY].getPiece();
+
+            if (enemyPiece != null && enemyPiece.getType() == piece.getType()) break;
+
+            if (enemyPiece != null) {
+                if (canLandBehindEnemy(piece, x, y, enemyX, enemyY, dir, startDist)) {
+                    return true;
+                }
+                break;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean canLandBehindEnemy(Piece piece, int x, int y, int enemyX, int enemyY, int[] dir, int startDist) {
+        int maxLandingDist = piece.isKing ? Math.max(WIDTH, HEIGHT) : 1;
+
+        for (int landDist = 1; landDist <= maxLandingDist; landDist++) {
+            int landX = enemyX + dir[0] * landDist;
+            int landY = enemyY + dir[1] * landDist;
+
+            if (!isInsideBoard(landX, landY)) break;
+            if (board[landX][landY].hasPiece()) break;
+
+            if (isPathClear(enemyX, enemyY, dir, landDist) &&
+                    isPathClear(x, y, dir, startDist)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isPathClear(int startX, int startY, int[] dir, int distance) {
+        for (int step = 1; step < distance; step++) {
+            int checkX = startX + dir[0] * step;
+            int checkY = startY + dir[1] * step;
+            if (board[checkX][checkY].hasPiece()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isInsideBoard(int x, int y) {
+        return x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT;
     }
 
     public void makeMove(Piece piece, int newX, int newY) {
@@ -227,82 +226,91 @@ public class GameLogic {
     }
 
     public void checkGameEnd(Consumer<PieceType> endGameCallback) {
-        if (gameEnded) {
-            return;
-        }
+        if (gameEnded) return;
 
         PieceType currentPlayerType = redTurn ? PieceType.RED : PieceType.WHITE;
         PieceType opponentType = redTurn ? PieceType.WHITE : PieceType.RED;
 
-        boolean opponentHasPieces = false;
-        for (int y = 0; y < HEIGHT; y++) {
-            for (int x = 0; x < WIDTH; x++) {
-                if (board[x][y].hasPiece() && board[x][y].getPiece().getType() == opponentType) {
-                    opponentHasPieces = true;
-                    break;
-                }
-            }
-            if (opponentHasPieces) break;
-        }
-
-        if (!opponentHasPieces) {
+        if (!opponentHasPieces(opponentType)) {
             endGameCallback.accept(currentPlayerType);
             return;
         }
 
-        boolean opponentCanMove = false;
+        if (!opponentCanMove(opponentType)) {
+            endGameCallback.accept(currentPlayerType);
+        }
+    }
 
+
+    private boolean opponentHasPieces(PieceType opponentType) {
+        for (int y = 0; y < HEIGHT; y++) {
+            for (int x = 0; x < WIDTH; x++) {
+                if (board[x][y].hasPiece() && board[x][y].getPiece().getType() == opponentType) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean opponentCanMove(PieceType opponentType) {
         redTurn = !redTurn;
         updateAvailableCaptures();
 
         if (!piecesWithCaptures.isEmpty()) {
-            opponentCanMove = true;
-        } else {
-            for (int y = 0; y < HEIGHT && !opponentCanMove; y++) {
-                for (int x = 0; x < WIDTH && !opponentCanMove; x++) {
-                    if (board[x][y].hasPiece() && board[x][y].getPiece().getType() == opponentType) {
-                        Piece piece = board[x][y].getPiece();
+            redTurn = !redTurn;
+            updateAvailableCaptures();
+            return true;
+        }
 
-                        List<int[]> directions = piece.getNormalMoveDirections();
-                        for (int[] dir : directions) {
-                            int maxDistance = piece.isKing ? Math.max(WIDTH, HEIGHT) : 1;
+        boolean canMove = canOpponentMakeNormalMove(opponentType);
 
-                            for (int dist = 1; dist <= maxDistance; dist++) {
-                                int newX = x + dir[0] * dist;
-                                int newY = y + dir[1] * dist;
+        redTurn = !redTurn;
+        updateAvailableCaptures();
+        return canMove;
+    }
 
-                                if (newX >= 0 && newX < WIDTH && newY >= 0 && newY < HEIGHT) {
-                                    if (!board[newX][newY].hasPiece() && (newX + newY) % 2 != 0) {
-                                        if (piece.isKing && dist > 1) {
-                                            if (isPathClear(x, y, newX, newY)) {
-                                                opponentCanMove = true;
-                                                break;
-                                            }
-                                        } else {
-                                            opponentCanMove = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if (board[newX][newY].hasPiece()) {
-                                        break;
-                                    }
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
+    private boolean canOpponentMakeNormalMove(PieceType opponentType) {
+        for (int y = 0; y < HEIGHT; y++) {
+            for (int x = 0; x < WIDTH; x++) {
+                if (board[x][y].hasPiece() && board[x][y].getPiece().getType() == opponentType) {
+                    Piece piece = board[x][y].getPiece();
+                    if (canPieceMoveNormally(piece, x, y)) {
+                        return true;
                     }
                 }
             }
         }
+        return false;
+    }
 
-        redTurn = !redTurn;
-        updateAvailableCaptures();
+    private boolean canPieceMoveNormally(Piece piece, int x, int y) {
+        List<int[]> directions = piece.getNormalMoveDirections();
+        for (int[] dir : directions) {
+            int maxDistance = piece.isKing ? Math.max(WIDTH, HEIGHT) : 1;
 
-        if (!opponentCanMove) {
-            endGameCallback.accept(currentPlayerType);
+            for (int dist = 1; dist <= maxDistance; dist++) {
+                int newX = x + dir[0] * dist;
+                int newY = y + dir[1] * dist;
+
+                if (!isWithinBounds(newX, newY)) break;
+
+                if (!board[newX][newY].hasPiece() && (newX + newY) % 2 != 0) {
+                    if (piece.isKing && dist > 1) {
+                        if (isPathClear(x, y, newX, newY)) return true;
+                    } else {
+                        return true;
+                    }
+                }
+
+                if (board[newX][newY].hasPiece()) break;
+            }
         }
+        return false;
+    }
+
+    private boolean isWithinBounds(int x, int y) {
+        return x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT;
     }
 
     private boolean isPathClear(int x0, int y0, int newX, int newY) {
@@ -323,6 +331,19 @@ public class GameLogic {
     }
 
     private MoveResult tryCapture(Piece piece, int startX, int startY, int targetX, int targetY) {
+        List<Piece> capturedPieces = collectCapturedPieces(piece, startX, startY, targetX, targetY);
+        if (capturedPieces == null || capturedPieces.isEmpty()) {
+            return new MoveResult(MoveType.NONE);
+        }
+
+        if (!validateCaptureRules(piece, capturedPieces)) {
+            return new MoveResult(MoveType.NONE);
+        }
+
+        return new MoveResult(MoveType.KILL, capturedPieces);
+    }
+
+    private List<Piece> collectCapturedPieces(Piece piece, int startX, int startY, int targetX, int targetY) {
         int dx = targetX - startX;
         int dy = targetY - startY;
         int stepX = Integer.signum(dx);
@@ -335,43 +356,43 @@ public class GameLogic {
             int checkY = startY + step * stepY;
 
             if (isInBounds(checkX, checkY)) {
-                return new MoveResult(MoveType.NONE);
+                return null;
             }
 
             Piece pieceAtPosition = board[checkX][checkY].getPiece();
 
             if (pieceAtPosition != null) {
                 if (pieceAtPosition.getType() == piece.getType()) {
-                    return new MoveResult(MoveType.NONE);
+                    return null;
                 }
                 capturedPieces.add(pieceAtPosition);
             }
         }
 
-        if (!capturedPieces.isEmpty()) {
-            if (!piece.isKing && capturedPieces.size() > 1) {
-                return new MoveResult(MoveType.NONE);
-            }
+        return capturedPieces;
+    }
 
-            if (capturedPieces.size() > 1) {
-                for (int i = 0; i < capturedPieces.size() - 1; i++) {
-                    Piece p1 = capturedPieces.get(i);
-                    Piece p2 = capturedPieces.get(i + 1);
-                    int x1 = toBoard(p1.oldX);
-                    int y1 = toBoard(p1.oldY);
-                    int x2 = toBoard(p2.oldX);
-                    int y2 = toBoard(p2.oldY);
-
-                    if (Math.abs(x2 - x1) == 1 && Math.abs(y2 - y1) == 1) {
-                        return new MoveResult(MoveType.NONE);
-                    }
-                }
-            }
-
-            return new MoveResult(MoveType.KILL, capturedPieces);
+    private boolean validateCaptureRules(Piece piece, List<Piece> capturedPieces) {
+        if (!piece.isKing && capturedPieces.size() > 1) {
+            return false;
         }
 
-        return new MoveResult(MoveType.NONE);
+        if (capturedPieces.size() > 1) {
+            for (int i = 0; i < capturedPieces.size() - 1; i++) {
+                Piece p1 = capturedPieces.get(i);
+                Piece p2 = capturedPieces.get(i + 1);
+                int x1 = toBoard(p1.oldX);
+                int y1 = toBoard(p1.oldY);
+                int x2 = toBoard(p2.oldX);
+                int y2 = toBoard(p2.oldY);
+
+                if (Math.abs(x2 - x1) == 1 && Math.abs(y2 - y1) == 1) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     public int toBoard(double pixel) {
