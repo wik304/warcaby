@@ -28,10 +28,54 @@ public class CheckersGame {
 
     public void start(Stage primaryStage) {
         this.primaryStage = primaryStage;
-        this.gameLogic = new GameLogic(board);
-        initializeGame();
-        primaryStage.setTitle("Warcaby - JavaFX");
-        primaryStage.setScene(new Scene(root));
+        showStartMenu();
+    }
+
+    private void showStartMenu() {
+        Button localPlayButton = new Button("Graj lokalnie (1vs1)");
+        Button lanPlayButton = new Button("Graj przez LAN (1vs1)");
+
+        String buttonStyle = """
+        -fx-font-size: 16px;
+        -fx-padding: 10 20;
+        -fx-background-color: linear-gradient(to bottom, #4CAF50, #2E7D32);
+        -fx-text-fill: white;
+        -fx-background-radius: 10;
+        -fx-cursor: hand;
+    """;
+
+        String hoverStyle = """
+        -fx-background-color: linear-gradient(to bottom, #66BB6A, #388E3C);
+    """;
+
+        localPlayButton.setStyle(buttonStyle);
+        lanPlayButton.setStyle(buttonStyle);
+
+        localPlayButton.setOnMouseEntered(_ -> localPlayButton.setStyle(buttonStyle + hoverStyle));
+        localPlayButton.setOnMouseExited(_ -> localPlayButton.setStyle(buttonStyle));
+        lanPlayButton.setOnMouseEntered(_ -> lanPlayButton.setStyle(buttonStyle + hoverStyle));
+        lanPlayButton.setOnMouseExited(_ -> lanPlayButton.setStyle(buttonStyle));
+
+        localPlayButton.setOnAction(_ -> {
+            this.gameLogic = new GameLogic(board);
+            initializeGame();
+            primaryStage.setScene(new Scene(root));
+        });
+
+        lanPlayButton.setOnAction(_ -> {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("LAN");
+            alert.setHeaderText("Tryb LAN nie jest jeszcze dostępny.");
+            alert.setContentText("Funkcjonalność gry przez LAN będzie dodana w przyszłości.");
+            alert.showAndWait();
+        });
+
+        VBox menuLayout = new VBox(20, localPlayButton, lanPlayButton);
+        menuLayout.setStyle("-fx-padding: 40; -fx-alignment: center; -fx-background-color: linear-gradient(to bottom, #d0d0d0, #f0f0f0);");
+
+        Scene menuScene = new Scene(menuLayout, 400, 300);
+        primaryStage.setScene(menuScene);
+        primaryStage.setTitle("Warcaby - Wybór Trybu Gry");
         primaryStage.show();
     }
 
